@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 from unittest import mock
 
 import pytest
@@ -47,6 +48,114 @@ def test_style_guide_manager():
     guide = style_guide.StyleGuideManager(options, formatter=formatter)
     assert guide.default_style_guide.options is options
     assert len(guide.style_guides) == 1
+
+
+@pytest.mark.parametrize(
+        ('select', 'extend_select', 'expected'),
+        [
+                    # --select which still selects every installed plugin is useless
+                    (
+                                    ['E', 'W', 'F', 'C90'],
+                        None,
+                        '--select W,F,E,C90 is unnecessary: it already selects all '
+                        'installed plugins',
+            ),
+                    # a prefix which covers a default code is enough
+                    (
+                                    ['E', 'W', 'F', 'C'],
+                                    None,
+                                    '--select W,F,E,C is unnecessary: it already selects all '
+                                    'installed plugins',
+                    ),
+        ],
+)
+def test_useless_select_warns(select, extend_select, expected, caplog):
+        formatter = mock.create_autospec(base.BaseFormatter, instance=True)
+        options = create_options(
+                    select=select,
+                    extend_select=extend_select,
+                    extended_default_select=['C90', 'F', 'E', 'W'],
+        )
+        style_guide.StyleGuideManager(options, formatter=formatter)
+
+    assert caplog.record_tuples == [
+                ('flake8.style_guide', logging.WARNING, expected),
+    ]
+
+
+@pytest.mark.parametrize(
+        ('select', 'extend_select'),
+        [
+                    # no --select / --extend-select configured
+                    (None, None),
+                    # --select which restricts the default selection is useful
+                    (['E'], None),
+                    # --select=[] selects nothing
+                    ([], []),
+        ],
+)
+def test_useful_select_does_not_warn(select, extend_select, caplog):
+        formatter = mock.create_autospec(base.BaseFormatter, instance=True)
+        options = create_options(
+                    select=select,
+                    extend_select=extend_select,
+                    extended_default_select=['C90', 'F', 'E', 'W'],
+        )
+        style_guide.StyleGuideManager(options, formatter=formatter)
+
+    assert caplog.record_tuples == []
+
+
+@pytest.mark.parametrize(
+        ('extend_select', 'expected'),
+        [
+                    (
+                                    ['E'],
+                                    '--extend-select E is unnecessary: those codes are already '
+                                    'selected by default',
+                    ),
+                    # a sub-code of an already selected code is also useless
+                    (
+                                    ['E4'],
+                                    '--extend-select E4 is unnecessary: those codes are already '
+                                    'selected by default',
+                    ),
+        ],
+)
+def test_useless_extend_select_warns(extend_select, expected, caplog):
+        formatter = mock.create_autospec(base.BaseFormatter, instance=True)
+        options = create_options(
+                    select=None,
+                    extend_select=extend_select,
+                    extended_default_select=['C90', 'F', 'E', 'W'],
+        )
+        style_guide.StyleGuideManager(options, formatter=formatter)
+
+    assert caplog.record_tuples == [
+                ('flake8.style_guide', logging.WARNING, expected),
+    ]
+
+
+@pytest.mark.parametrize(
+        'extend_select',
+        [
+                    # --extend-select adding a code from an uninstalled plugin
+                    ['D'],
+                    # --extend-select re-enabling a default-ignored code is useful
+                    ['P002'],
+        ],
+)
+def test_useful_extend_select_does_not_warn(extend_select, caplog):
+        formatter = mock.create_autospec(base.BaseFormatter, instance=True)
+        options = create_options(
+                    select=None,
+                    extend_select=extend_select,
+                    extended_default_select=['C90', 'F', 'E', 'W'],
+                    extended_default_ignore=['P002'],
+        )
+        style_guide.StyleGuideManager(options, formatter=formatter)
+
+    assert caplog.record_tuples == []
 
 
 PER_FILE_IGNORES_UNPARSED = [
