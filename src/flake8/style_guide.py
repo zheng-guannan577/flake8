@@ -66,6 +66,46 @@ def _select_ignore(
     return tuple(sorted(ret, reverse=True))
 
 
+def _warn_for_useless_select(options: argparse.Namespace) -> None:
+        """Warn if the configured ``select`` / ``extend-select`` is useless.
+
+            Users sometimes copy-paste ``select`` / ``extend-select`` into their
+                configuration in an attempt to "enable" plugins, but all installed
+                    plugins are enabled by default: these options only restrict which
+                        error codes are reported.
+                            """
+        default_select = options.extended_default_select
+        if not default_select:
+                    return
+
+    if options.select is not None:
+                # --select replaces the default selection: it is useless if it
+                # still selects every code selected by default
+                explicitly = _explicitly_chosen(
+                                option=options.select, extend=options.extend_select,
+                )
+                if explicitly and all(
+                                code.startswith(explicitly) for code in default_select
+                ):
+                                LOG.warning(
+                                                    '--select %s is unnecessary: it already selects all '
+                                                    'installed plugins',
+                                                    ','.join(explicitly),
+                                )
+    elif options.extend_select:
+                # --extend-select only adds to the default selection: it is
+                # useless if every added code is already selected by default
+                if all(
+                                code.startswith(tuple(default_select))
+                                for code in options.extend_select
+                ):
+                                LOG.warning(
+                                                    '--extend-select %s is unnecessary: those codes are '
+                                                    'already selected by default',
+                                                    ','.join(options.extend_select),
+                                )
+
+
 class DecisionEngine:
     """A class for managing the decision process around violations.
 
@@ -216,6 +256,7 @@ class StyleGuideManager:
         self.formatter = formatter
         self.stats = statistics.Statistics()
         self.decider = decider or DecisionEngine(options)
+                _warn_for_useless_select(options)
         self.style_guides: list[StyleGuide] = []
         self.default_style_guide = StyleGuide(
             options, formatter, self.stats, decider=decider,
